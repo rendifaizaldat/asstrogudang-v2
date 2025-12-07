@@ -6,6 +6,7 @@ import ProductCombobox from "@/components/form/ProductCombobox";
 import QuickAddProductModal from "@/components/form/QuickAddProductModal";
 import { submitBarangMasuk, checkInvoiceExists } from "./actions";
 import { useToast } from "@/components/ui/ToastProvider";
+import { Camera, Loader2, Sparkles } from "lucide-react"; // Icon tambahan
 
 // --- TIPE DATA ---
 interface Product {
@@ -56,6 +57,7 @@ export default function BarangMasukForm({
 
   // --- STATE UI & VALIDASI ---
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isScanning, setIsScanning] = useState(false); // State Scanning
   const [isLoaded, setIsLoaded] = useState(false);
   const [invoiceError, setInvoiceError] = useState("");
 
@@ -138,6 +140,92 @@ export default function BarangMasukForm({
     return () => window.removeEventListener("keydown", handleKey);
   }, []);
 
+  // --- LOGIC OCR SCAN ---
+  const handleScanNota = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validasi ukuran (4MB)
+    if (file.size > 4 * 1024 * 1024) {
+      addToast("Ukuran file maksimal 4MB", "error");
+      return;
+    }
+
+    try {
+      setIsScanning(true);
+      addToast("AI sedang membaca nota... Mohon tunggu", "info");
+
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const res = await fetch("/api/ocr", {
+        method: "POST",
+        body: formData,
+      });
+
+      const { data, error } = await res.json();
+
+      if (error) throw new Error(error);
+
+      // 1. Auto Fill Header
+      if (data.vendor_match) {
+        // Cek apakah vendor ada di list props
+        const vendorExists = vendors.some(
+          (v) => v.nama_vendor === data.vendor_match
+        );
+        if (vendorExists) setSelectedVendor(data.vendor_match);
+      }
+
+      if (data.no_nota) setNoNota(data.no_nota);
+      if (data.tanggal) {
+        setTglNota(data.tanggal);
+        // Auto set jatuh tempo +30 hari
+        const d = new Date(data.tanggal);
+        d.setDate(d.getDate() + 30);
+        setTglJatuhTempo(d.toISOString().split("T")[0]);
+      }
+
+      // 2. Auto Fill Items
+      const newItems: CartItem[] = [];
+      let successCount = 0;
+
+      data.items.forEach((ocrItem: any) => {
+        if (ocrItem.product_id) {
+          const fullProduct = products.find((p) => p.id === ocrItem.product_id);
+
+          if (fullProduct) {
+            successCount++;
+            newItems.push({
+              ...fullProduct,
+              qty: ocrItem.qty || 1,
+              harga_beli: ocrItem.harga_satuan || fullProduct.harga_beli || 0,
+              subtotal: (ocrItem.qty || 1) * (ocrItem.harga_satuan || 0),
+            });
+          }
+        }
+      });
+
+      if (newItems.length > 0) {
+        setCart((prev) => [...prev, ...newItems]);
+        addToast(
+          `Scan Selesai! ${successCount} barang berhasil dicocokkan.`,
+          "success"
+        );
+      } else {
+        addToast(
+          "Scan selesai, tapi tidak ada barang yang cocok otomatis.",
+          "info"
+        );
+      }
+    } catch (err: any) {
+      console.error(err);
+      addToast("Gagal memproses nota: " + err.message, "error");
+    } finally {
+      setIsScanning(false);
+      e.target.value = ""; // Reset input file
+    }
+  };
+
   // --- LOGIC ITEM ---
   const handleProductSelect = (product: Product) => {
     setSelectedProduct(product);
@@ -201,7 +289,6 @@ export default function BarangMasukForm({
   };
 
   const handleReset = () => {
-    // Menghapus confirm() di sini agar reset langsung terjadi
     setCart([]);
     setNoNota("");
     setSelectedVendor("");
@@ -217,9 +304,6 @@ export default function BarangMasukForm({
     if (!tglJatuhTempo) return addToast("Isi Tanggal Jatuh Tempo!", "error");
     if (cart.length === 0)
       return addToast("Belum ada barang di daftar!", "error");
-
-    // === HAPUS CONFIRM DISINI ===
-    // Langsung proses submit tanpa popup "Yes/No"
 
     setIsSubmitting(true);
 
@@ -326,14 +410,62 @@ export default function BarangMasukForm({
         {/* Card 2: Input Barang */}
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 relative overflow-hidden">
           <div className="absolute top-0 right-0 w-16 h-16 bg-blue-500/5 rounded-bl-3xl"></div>
-          <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
-            <span className="text-xl">📥</span> Input Barang
-          </h3>
+
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="font-bold text-slate-800 flex items-center gap-2">
+              <span className="text-xl">📥</span> Input Barang
+            </h3>
+          </div>
+
+          {/* TOMBOL SCAN AI */}
+          <div className="mb-6">
+            <label
+              className={`
+              flex items-center justify-center gap-2 w-full p-3 rounded-xl border-2 border-dashed cursor-pointer transition-all relative overflow-hidden group
+              ${
+                isScanning
+                  ? "bg-indigo-50 border-indigo-300 text-indigo-400 cursor-wait"
+                  : "bg-slate-50 border-slate-300 text-slate-500 hover:bg-indigo-50 hover:border-indigo-400 hover:text-indigo-600"
+              }
+            `}
+            >
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handleScanNota}
+                disabled={isScanning}
+                className="hidden"
+              />
+              {isScanning ? (
+                <>
+                  <Loader2 size={20} className="animate-spin" />
+                  <span className="text-sm font-bold animate-pulse">
+                    AI Sedang Menganalisa...
+                  </span>
+                </>
+              ) : (
+                <>
+                  <div className="p-1.5 bg-white rounded-full shadow-sm group-hover:scale-110 transition-transform">
+                    <Camera size={18} className="text-indigo-600" />
+                  </div>
+                  <div className="flex flex-col items-start">
+                    <span className="text-sm font-bold flex items-center gap-1">
+                      Scan Nota Otomatis{" "}
+                      <Sparkles size={12} className="text-yellow-500" />
+                    </span>
+                    <span className="text-[10px] opacity-70">
+                      Upload foto nota, AI akan mengisi data.
+                    </span>
+                  </div>
+                </>
+              )}
+            </label>
+          </div>
 
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-slate-600 mb-1">
-                Cari Produk
+                Cari Produk Manual
               </label>
               <div className="flex gap-2">
                 <div className="flex-1">
@@ -447,7 +579,7 @@ export default function BarangMasukForm({
                     Belum ada barang di daftar nota ini.
                     <br />
                     <span className="text-xs">
-                      Cari barang & tekan Enter untuk input cepat.
+                      Scan nota atau cari barang manual.
                     </span>
                   </td>
                 </tr>
