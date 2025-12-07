@@ -1,4 +1,4 @@
-// components/purchase-order/PurchaseOrderForm.tsx
+// app/(dashboard)/purchase-order/PurchaseOrderForm.tsx
 "use client";
 
 import { useState, useEffect, useRef } from "react";
@@ -9,9 +9,9 @@ import {
   Save,
   ShoppingCart as ShoppingCartIcon,
 } from "lucide-react";
-import ProductCombobox from "@/components/form/ProductCombobox"; // Import Component Baru
+import ProductCombobox from "@/components/form/ProductCombobox";
+import { useToast } from "@/components/ui/ToastProvider"; // 1. Import Toast
 
-// Key untuk menyimpan draft keranjang di browser user
 const STORAGE_KEY = "asstro_po_draft";
 
 export default function PurchaseOrderForm({
@@ -25,6 +25,8 @@ export default function PurchaseOrderForm({
   userRole: string;
   userOutlet?: string;
 }) {
+  const { addToast } = useToast(); // 2. Init Toast
+
   // State Utama
   const [selectedOutlet, setSelectedOutlet] = useState("");
   const [tanggalKirim, setTanggalKirim] = useState(
@@ -33,15 +35,14 @@ export default function PurchaseOrderForm({
   const [cart, setCart] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
 
-  // State Input Produk (Diganti menggunakan Object, bukan string JSON lagi)
+  // State Input Produk
   const [selectedProduct, setSelectedProduct] = useState<any>(null);
   const [qty, setQty] = useState(1);
 
-  // Refs untuk Manajemen Fokus Keyboard
   const qtyInputRef = useRef<HTMLInputElement>(null);
   const comboboxRef = useRef<{ focus: () => void }>(null);
 
-  // 1. Load Draft & Initial Setup
+  // 1. Load Draft
   useEffect(() => {
     const savedDraft = localStorage.getItem(STORAGE_KEY);
     if (savedDraft) {
@@ -66,19 +67,16 @@ export default function PurchaseOrderForm({
     }
   }, [cart]);
 
-  // --- HANDLER BARU: SAAT PRODUK DIPILIH DARI COMBOBOX ---
+  // Handler Select Product
   const handleProductSelect = (product: any) => {
     setSelectedProduct(product);
     setQty(1);
-
-    // UX: Pindah fokus otomatis ke input Qty
     setTimeout(() => {
       qtyInputRef.current?.focus();
-      qtyInputRef.current?.select(); // Blok angka agar siap ganti
+      qtyInputRef.current?.select();
     }, 100);
   };
 
-  // --- HANDLER BARU: SAAT TEKAN ENTER DI QTY ---
   const handleQtyKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter") {
       e.preventDefault();
@@ -86,38 +84,37 @@ export default function PurchaseOrderForm({
     }
   };
 
-  // Handler: Tambah Item ke Keranjang
+  // Handler Add Item (Updated with Toast)
   const handleAddItem = () => {
-    if (!selectedProduct) return alert("Pilih produk dulu!");
-    if (qty <= 0) return alert("Jumlah minimal 1");
+    if (!selectedProduct) return addToast("Pilih produk dulu!", "error");
+    if (qty <= 0) return addToast("Jumlah minimal 1", "error");
 
-    // Cek Stok Frontend (UX only)
+    // Validasi Stok
     if (qty > selectedProduct.sisa_stok) {
-      alert(
-        `Stok tidak cukup! Sisa stok: ${selectedProduct.sisa_stok} ${selectedProduct.unit}`
+      addToast(
+        `Stok kurang! Sisa: ${selectedProduct.sisa_stok} ${selectedProduct.unit}`,
+        "error"
       );
       return;
     }
 
-    // Cek Duplikat di Cart
     const existingIdx = cart.findIndex(
       (item) => item.product_id === selectedProduct.id
     );
 
     if (existingIdx >= 0) {
-      // Update qty jika sudah ada
       const updatedCart = [...cart];
       const newQty = updatedCart[existingIdx].qty + qty;
 
       if (newQty > selectedProduct.sisa_stok) {
-        alert("Total jumlah melebihi sisa stok!");
+        addToast("Total jumlah melebihi sisa stok saat ini!", "error");
         return;
       }
       updatedCart[existingIdx].qty = newQty;
       updatedCart[existingIdx].subtotal = newQty * selectedProduct.harga_jual;
       setCart(updatedCart);
+      addToast(`Qty ${selectedProduct.nama} diperbarui`, "info");
     } else {
-      // Tambah baru
       setCart([
         ...cart,
         {
@@ -130,47 +127,38 @@ export default function PurchaseOrderForm({
           subtotal: qty * selectedProduct.harga_jual,
         },
       ]);
+      addToast("Produk ditambahkan", "success");
     }
 
-    // Reset Input & Kembalikan Fokus ke Combobox (Rapid Entry)
     setQty(1);
     setSelectedProduct(null);
-
     setTimeout(() => {
       comboboxRef.current?.focus();
     }, 50);
   };
 
-  // Handler: Hapus Item
   const handleRemoveItem = (index: number) => {
     const newCart = cart.filter((_, i) => i !== index);
     setCart(newCart);
     if (newCart.length === 0) {
       localStorage.removeItem(STORAGE_KEY);
     }
+    addToast("Item dihapus", "info");
   };
 
-  // --- NEW HANDLER: RESET FORM ---
+  // Handler Reset (Tanpa Confirm, pakai Toast Info)
   const handleReset = () => {
-    if (
-      confirm(
-        "Reset formulir Purchase Order? Semua data di keranjang akan dihapus."
-      )
-    ) {
-      setCart([]);
-      if (userRole === "admin") setSelectedOutlet("");
-      localStorage.removeItem(STORAGE_KEY);
-    }
+    setCart([]);
+    if (userRole === "admin") setSelectedOutlet("");
+    localStorage.removeItem(STORAGE_KEY);
+    addToast("Formulir berhasil direset", "info");
   };
 
-  // Handler: Submit PO
+  // Handler Submit (Tanpa Confirm, Validasi Pakai Toast)
   const handleSubmit = async () => {
-    if (!selectedOutlet) return alert("Pilih Outlet tujuan!");
-    if (cart.length === 0) return alert("Keranjang masih kosong!");
-    if (!tanggalKirim) return alert("Tentukan tanggal kirim!");
-
-    if (!confirm("Pastikan data sudah benar. Buat Purchase Order sekarang?"))
-      return;
+    if (!selectedOutlet) return addToast("Pilih Outlet tujuan!", "error");
+    if (cart.length === 0) return addToast("Keranjang masih kosong!", "error");
+    if (!tanggalKirim) return addToast("Tentukan tanggal kirim!", "error");
 
     setLoading(true);
 
@@ -189,9 +177,9 @@ export default function PurchaseOrderForm({
     setLoading(false);
 
     if (result.error) {
-      alert(`Gagal: ${result.error}`);
+      addToast(`Gagal: ${result.error}`, "error");
     } else {
-      alert("Berhasil! PO telah disimpan.");
+      addToast("Berhasil! PO telah disimpan.", "success");
       setCart([]);
       if (userRole === "admin") {
         setSelectedOutlet("");
@@ -200,7 +188,6 @@ export default function PurchaseOrderForm({
     }
   };
 
-  // Hitung Total Estimasi
   const totalEstimasi = cart.reduce((sum, item) => sum + item.subtotal, 0);
 
   return (
@@ -254,45 +241,43 @@ export default function PurchaseOrderForm({
           </div>
         </div>
 
-        {/* PANEL 2: INPUT PRODUK (COMBOBOX) */}
+        {/* PANEL 2: INPUT PRODUK */}
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 relative z-50">
           <h3 className="font-bold text-lg text-slate-800 mb-4 flex items-center gap-2">
             📦 Tambah Barang
           </h3>
 
           <div className="space-y-4">
-            {/* PRODUCT COMBOBOX */}
             <div>
               <label className="block text-xs font-bold text-slate-500 uppercase mb-1">
                 Cari Produk{" "}
                 {selectedProduct ? `(Dipilih: ${selectedProduct.nama})` : ""}
               </label>
               <ProductCombobox
-                ref={comboboxRef} // REF UNTUK FOKUS BALIK
+                ref={comboboxRef}
                 products={products}
                 onSelect={handleProductSelect}
                 placeholder="Ketik nama produk... (Enter)"
               />
             </div>
 
-            {/* QTY INPUT */}
             <div>
               <label className="block text-xs font-bold text-slate-500 uppercase mb-1">
                 Jumlah
               </label>
               <div className="flex gap-2">
                 <input
-                  ref={qtyInputRef} // REF UNTUK FOKUS MASUK
+                  ref={qtyInputRef}
                   type="number"
                   min="1"
                   value={qty}
                   onChange={(e) => setQty(Number(e.target.value))}
-                  onKeyDown={handleQtyKeyDown} // ENTER LISTENER
+                  onKeyDown={handleQtyKeyDown}
                   className="flex-1 border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-indigo-500 outline-none"
                 />
                 <button
                   onClick={handleAddItem}
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 rounded-lg flex items-center justify-center transition-colors"
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 rounded-lg flex items-center justify-center transition-colors shadow-lg shadow-indigo-500/20 active:scale-95"
                   title="Tambah (Enter)"
                 >
                   <Plus size={20} />
@@ -377,7 +362,6 @@ export default function PurchaseOrderForm({
           </div>
 
           <div className="mt-6 pt-4 border-t border-slate-100 flex justify-end gap-3">
-            {/* BUTTON RESET BARU */}
             <button
               onClick={handleReset}
               disabled={cart.length === 0}
@@ -389,7 +373,7 @@ export default function PurchaseOrderForm({
             <button
               onClick={handleSubmit}
               disabled={loading || cart.length === 0}
-              className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-8 py-3 rounded-xl font-bold shadow-lg shadow-emerald-500/30 disabled:opacity-50 disabled:shadow-none transition-all transform hover:-translate-y-1"
+              className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-8 py-3 rounded-xl font-bold shadow-lg shadow-emerald-500/30 disabled:opacity-50 disabled:shadow-none transition-all transform hover:-translate-y-1 active:scale-95"
             >
               {loading ? (
                 "Memproses..."

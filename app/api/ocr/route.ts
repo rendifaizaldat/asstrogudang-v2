@@ -4,10 +4,8 @@ import { createClient } from "@supabase/supabase-js";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import sharp from "sharp";
 
-// 1. Inisialisasi Klien
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 
-// Gunakan Service Role Key untuk bypass RLS (karena ini API system-level)
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -17,6 +15,8 @@ export async function POST(req: Request) {
   try {
     const formData = await req.formData();
     const file = formData.get("file") as File;
+    // Kita terima context vendor yang dipilih user (opsional, untuk membantu AI jika perlu)
+    const contextVendor = (formData.get("vendorName") as string) || "";
 
     if (!file) {
       return NextResponse.json(
@@ -25,25 +25,19 @@ export async function POST(req: Request) {
       );
     }
 
-    // 2. Ambil "Contekkan" Data Master (Context) dari Supabase
-    // Menggunakan list lengkap agar AI 'Pro' bisa berpikir lebih dalam
-    const [vendorsRes, productsRes] = await Promise.all([
-      supabase.from("vendors").select("id, nama_vendor"),
-      supabase
-        .from("products")
-        .select("id, nama, kode_produk, unit, harga_beli")
-        .eq("is_archived", false),
-    ]);
+    // 1. Ambil Data Produk Saja (Vendor list tidak wajib lagi karena user isi manual)
+    const { data: products } = await supabase
+      .from("products")
+      .select("id, nama, kode_produk, unit, harga_beli")
+      .eq("is_archived", false);
 
-    const listVendor =
-      vendorsRes.data?.map((v) => v.nama_vendor).join(", ") || "";
     // Format ringkas: ID|Nama|Kode
     const listProduk =
-      productsRes.data
+      products
         ?.map((p) => `ID:${p.id}|${p.nama}|${p.kode_produk || ""}`)
         .join("\n") || "";
 
-    // 3. Image Pre-processing dengan Sharp
+    // 2. Image Processing
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
     const processedImage = await sharp(buffer)
@@ -54,48 +48,38 @@ export async function POST(req: Request) {
 
     const base64Image = processedImage.toString("base64");
 
-    // 4. Konfigurasi Model (UPDATED ke 2.5 Pro)
-    // Menggunakan model 'gemini-2.5-pro' yang tersedia di akun Anda
-    const modelName = "gemini-2.5-pro";
-
+    // 3. Konfigurasi Model (Gunakan model terbaik Anda)
     const model = genAI.getGenerativeModel({
-      model: modelName,
+      model: "gemini-2.5-pro", // Atau 'gemini-1.5-flash-latest' jika 2.5 belum stabil
       generationConfig: { responseMimeType: "application/json" },
     });
 
     const prompt = `
-      Anda adalah mesin OCR data entry yang sangat teliti. 
-      Tugas: Ekstrak data dari nota, perbaiki typo, dan cocokan dengan database master.
+      Anda adalah asisten input item gudang. 
+      Tugas: Ekstrak LIST BARANG dari gambar nota ini. 
+      Hiraukan Header (Nama Toko/Tanggal) jika tidak jelas atau terpotong. Fokus ke tabel barang.
 
-      === MASTER DATA ===
-      VENDORS: [${listVendor}]
-      PRODUCTS:
+      === KONTEKS ===
+      Vendor Terpilih (User Input): ${contextVendor} (Gunakan ini sebagai petunjuk jenis barang)
+      
+      DATABASE PRODUK KAMI:
       ${listProduk}
-      ===================
+      ===============
 
-      INSTRUKSI KHUSUS:
-      1. VENDOR: Jika nama di nota mirip dengan Master Vendor, gunakan nama Master.
-      2. ITEM PRODUK:
-         - Baca baris per baris.
-         - Cocokkan nama barang di nota dengan "PRODUCTS" menggunakan fuzzy logic (kemiripan).
-         - Prioritaskan kecocokan pada Kode Produk jika ada.
-         - Jika cocok, isi "product_id" dengan ID dari Master.
-         - Jika TIDAK cocok sama sekali, biarkan "product_id" null, tapi tetap ambil nama aslinya.
-      3. ANGKA: Pastikan qty dan harga dikonversi ke number murni (buang 'Rp', 'pcs', '.', ',').
+      INSTRUKSI ITEM:
+      1. Baca setiap baris barang di gambar.
+      2. Cari produk yang COCOK di "DATABASE PRODUK KAMI".
+      3. Jika cocok, ambil "product_id". Jika tidak, "product_id" = null.
+      4. Ambil qty dan harga (bersihkan dari simbol mata uang).
 
-      OUTPUT JSON FORMAT:
+      OUTPUT JSON:
       {
-        "vendor_match": "Nama Vendor Master" (or null),
-        "no_nota": "String",
-        "tanggal": "YYYY-MM-DD" (convert if needed),
         "items": [
           {
             "product_id": Number (or null),
-            "nama_di_nota": "String asli di gambar",
-            "matched_nama": "Nama di Master Product" (or null),
+            "nama_di_nota": "String asli",
             "qty": Number,
-            "harga_satuan": Number,
-            "subtotal": Number
+            "harga_satuan": Number
           }
         ]
       }
@@ -109,14 +93,9 @@ export async function POST(req: Request) {
     const responseText = result.response.text();
     const parsedData = JSON.parse(responseText);
 
-    return NextResponse.json({
-      success: true,
-      data: parsedData,
-      model_used: modelName,
-    });
+    return NextResponse.json({ success: true, data: parsedData });
   } catch (error: any) {
     console.error("OCR Error:", error);
-    // Tampilkan pesan error detail jika gagal lagi
     return NextResponse.json(
       {
         error: `AI Error: ${error.message}`,

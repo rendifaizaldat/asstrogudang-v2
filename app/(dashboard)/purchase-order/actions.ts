@@ -21,7 +21,7 @@ export async function createPurchaseOrder(data: any) {
     // FIX: Sesuaikan struktur payload agar 100% sama dengan aplikasi lama (Vanilla JS)
     // Backend mengharapkan 'harga_jual', bukan 'price_per_unit'
     const itemsPayload = data.items.map((item: any) => ({
-      product_id: item.id,
+      product_id: item.product_id,
       nama: item.nama, // Kirim nama juga untuk jaga-jaga
       qty: Number(item.qty),
       harga_jual: Number(item.harga_jual), // <-- INI KUNCINYA

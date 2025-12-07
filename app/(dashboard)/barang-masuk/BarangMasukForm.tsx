@@ -145,7 +145,18 @@ export default function BarangMasukForm({
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Validasi ukuran (4MB)
+    // Validasi: User harus pilih vendor dulu agar AI lebih terarah (Opsional, tapi disarankan)
+    if (!selectedVendor) {
+      if (
+        !confirm(
+          "Anda belum memilih Vendor. Lanjutkan scan tanpa referensi vendor?"
+        )
+      ) {
+        e.target.value = "";
+        return;
+      }
+    }
+
     if (file.size > 4 * 1024 * 1024) {
       addToast("Ukuran file maksimal 4MB", "error");
       return;
@@ -153,10 +164,12 @@ export default function BarangMasukForm({
 
     try {
       setIsScanning(true);
-      addToast("AI sedang membaca nota... Mohon tunggu", "info");
+      addToast("AI sedang membaca item barang...", "info");
 
       const formData = new FormData();
       formData.append("file", file);
+      // Kirim vendor yang dipilih user untuk konteks AI
+      formData.append("vendorName", selectedVendor);
 
       const res = await fetch("/api/ocr", {
         method: "POST",
@@ -167,25 +180,16 @@ export default function BarangMasukForm({
 
       if (error) throw new Error(error);
 
-      // 1. Auto Fill Header
-      if (data.vendor_match) {
-        // Cek apakah vendor ada di list props
-        const vendorExists = vendors.some(
-          (v) => v.nama_vendor === data.vendor_match
-        );
-        if (vendorExists) setSelectedVendor(data.vendor_match);
-      }
+      // --- PERUBAHAN DISINI: HAPUS AUTO-FILL HEADER ---
+      // Kita tidak lagi mengubah selectedVendor, noNota, atau tglNota.
+      // Biarkan user yang mengisinya secara manual.
 
+      /* if (data.vendor_match) setSelectedVendor(data.vendor_match);
       if (data.no_nota) setNoNota(data.no_nota);
-      if (data.tanggal) {
-        setTglNota(data.tanggal);
-        // Auto set jatuh tempo +30 hari
-        const d = new Date(data.tanggal);
-        d.setDate(d.getDate() + 30);
-        setTglJatuhTempo(d.toISOString().split("T")[0]);
-      }
+      if (data.tanggal) setTglNota(data.tanggal); 
+      */
 
-      // 2. Auto Fill Items
+      // 2. Auto Fill Items Saja
       const newItems: CartItem[] = [];
       let successCount = 0;
 
@@ -208,21 +212,21 @@ export default function BarangMasukForm({
       if (newItems.length > 0) {
         setCart((prev) => [...prev, ...newItems]);
         addToast(
-          `Scan Selesai! ${successCount} barang berhasil dicocokkan.`,
+          `Berhasil menambahkan ${successCount} item ke daftar!`,
           "success"
         );
       } else {
         addToast(
-          "Scan selesai, tapi tidak ada barang yang cocok otomatis.",
+          "Tidak ditemukan item yang cocok dengan database produk.",
           "info"
         );
       }
     } catch (err: any) {
       console.error(err);
-      addToast("Gagal memproses nota: " + err.message, "error");
+      addToast("Gagal scan: " + err.message, "error");
     } finally {
       setIsScanning(false);
-      e.target.value = ""; // Reset input file
+      e.target.value = "";
     }
   };
 
