@@ -1,7 +1,7 @@
 // app/api/ocr/route.ts
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleGenerativeAI } from "@google/generative-ai"; // Kita tetap pakai SDK ini
 import sharp from "sharp";
 
 // 1. Inisialisasi Klien
@@ -26,6 +26,7 @@ export async function POST(req: Request) {
     }
 
     // 2. Ambil "Contekkan" Data Master (Context) dari Supabase
+    // Menggunakan list lengkap agar AI 'Pro' bisa berpikir lebih dalam
     const [vendorsRes, productsRes] = await Promise.all([
       supabase.from("vendors").select("id, nama_vendor"),
       supabase
@@ -34,58 +35,65 @@ export async function POST(req: Request) {
         .eq("is_archived", false),
     ]);
 
-    // Format data agar hemat token tapi informatif bagi AI
     const listVendor =
       vendorsRes.data?.map((v) => v.nama_vendor).join(", ") || "";
+    // Format ringkas: ID|Nama|Kode
     const listProduk =
-      productsRes.data?.map((p) => `ID:${p.id}|${p.nama}`).join("\n") || "";
+      productsRes.data
+        ?.map((p) => `ID:${p.id}|${p.nama}|${p.kode_produk || ""}`)
+        .join("\n") || "";
 
     // 3. Image Pre-processing dengan Sharp
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
     const processedImage = await sharp(buffer)
-      .grayscale() // Ubah ke hitam putih
-      .normalize() // Perbaiki kontras otomatis
-      .sharpen({ sigma: 1.5 }) // Pertajam teks
+      .grayscale()
+      .normalize()
+      .sharpen({ sigma: 1.5 })
       .toBuffer();
 
     const base64Image = processedImage.toString("base64");
 
-    // 4. Kirim ke Gemini dengan Context-Augmented Prompt
+    // 4. Kirim ke Gemini PRO (Karena akun Anda Pro)
+    // Model 'gemini-1.5-pro' jauh lebih akurat untuk handwriting & layout kompleks
     const model = genAI.getGenerativeModel({
-      model: "gemini-1.5-flash",
+      model: "gemini-1.5-pro",
       generationConfig: { responseMimeType: "application/json" },
     });
 
     const prompt = `
-      Analisis gambar nota ini dan cocokkan itemnya dengan database kami.
+      Anda adalah mesin OCR data entry yang sangat teliti. 
+      Tugas: Ekstrak data dari nota, perbaiki typo, dan cocokan dengan database master.
 
-      === DATABASE REFERENSI ===
+      === MASTER DATA ===
       VENDORS: [${listVendor}]
-      PRODUCTS (ID|NAMA):
+      PRODUCTS:
       ${listProduk}
-      ==========================
+      ===================
 
-      INSTRUKSI:
-      1. VENDOR: Cari nama vendor di nota. Jika mirip dengan salah satu di "VENDORS", ambil nama tersebut persis.
-      2. ITEM: Untuk setiap baris barang:
-         - Baca nama barang di nota.
-         - Cari produk yang PALING MIRIP di daftar "PRODUCTS".
-         - Ambil "product_id" dari ID produk yang cocok. 
-         - Jika tidak ada yang cocok, "product_id" = null.
-         - Ambil qty dan harga satuan (bersihkan dari mata uang/satuan).
+      INSTRUKSI KHUSUS:
+      1. VENDOR: Jika nama di nota mirip dengan Master Vendor, gunakan nama Master.
+      2. ITEM PRODUK:
+         - Baca baris per baris.
+         - Cocokkan nama barang di nota dengan "PRODUCTS" menggunakan fuzzy logic (kemiripan).
+         - Prioritaskan kecocokan pada Kode Produk jika ada.
+         - Jika cocok, isi "product_id" dengan ID dari Master.
+         - Jika TIDAK cocok sama sekali, biarkan "product_id" null, tapi tetap ambil nama aslinya.
+      3. ANGKA: Pastikan qty dan harga dikonversi ke number murni (buang 'Rp', 'pcs', '.', ',').
 
-      OUTPUT JSON (MURNI):
+      OUTPUT JSON FORMAT:
       {
-        "vendor_match": "Nama Vendor" (atau null),
-        "no_nota": "Nomor Nota" (atau null),
-        "tanggal": "YYYY-MM-DD" (atau null),
+        "vendor_match": "Nama Vendor Master" (or null),
+        "no_nota": "String",
+        "tanggal": "YYYY-MM-DD" (convert if needed),
         "items": [
           {
-            "product_id": Number (ID dari database atau null),
+            "product_id": Number (or null),
+            "nama_di_nota": "String asli di gambar",
+            "matched_nama": "Nama di Master Product" (or null),
             "qty": Number,
             "harga_satuan": Number,
-            "nama_di_nota": "String asli"
+            "subtotal": Number
           }
         ]
       }
@@ -103,7 +111,9 @@ export async function POST(req: Request) {
   } catch (error: any) {
     console.error("OCR Error:", error);
     return NextResponse.json(
-      { error: error.message || "Terjadi kesalahan sistem" },
+      {
+        error: error.message || "Terjadi kesalahan pada sistem AI",
+      },
       { status: 500 }
     );
   }
