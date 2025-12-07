@@ -1,7 +1,7 @@
 // app/api/ocr/route.ts
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { GoogleGenerativeAI } from "@google/generative-ai"; // Kita tetap pakai SDK ini
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import sharp from "sharp";
 
 // 1. Inisialisasi Klien
@@ -54,10 +54,12 @@ export async function POST(req: Request) {
 
     const base64Image = processedImage.toString("base64");
 
-    // 4. Kirim ke Gemini PRO (Karena akun Anda Pro)
-    // Model 'gemini-1.5-pro' jauh lebih akurat untuk handwriting & layout kompleks
+    // 4. Konfigurasi Model (UPDATED ke 2.5 Pro)
+    // Menggunakan model 'gemini-2.5-pro' yang tersedia di akun Anda
+    const modelName = "gemini-2.5-pro";
+
     const model = genAI.getGenerativeModel({
-      model: "gemini-1.5-pro",
+      model: modelName,
       generationConfig: { responseMimeType: "application/json" },
     });
 
@@ -107,12 +109,17 @@ export async function POST(req: Request) {
     const responseText = result.response.text();
     const parsedData = JSON.parse(responseText);
 
-    return NextResponse.json({ success: true, data: parsedData });
+    return NextResponse.json({
+      success: true,
+      data: parsedData,
+      model_used: modelName,
+    });
   } catch (error: any) {
     console.error("OCR Error:", error);
+    // Tampilkan pesan error detail jika gagal lagi
     return NextResponse.json(
       {
-        error: error.message || "Terjadi kesalahan pada sistem AI",
+        error: `AI Error: ${error.message}`,
       },
       { status: 500 }
     );
