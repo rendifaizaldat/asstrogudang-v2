@@ -195,7 +195,7 @@ export async function deletePiutang(id: number) {
 }
 
 // 5. UPLOAD BUKTI
-export async function uploadBuktiPiutang(formData: FormData) {
+export async function uploadBukti(formData: FormData) {
   const supabase = await createClient();
   try {
     const file = formData.get("file") as File;

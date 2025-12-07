@@ -7,7 +7,7 @@ import { revalidatePath } from "next/cache";
 const FUNCTION_URL =
   process.env.NEXT_PUBLIC_SUPABASE_URL + "/functions/v1/manage-transactions";
 
-export async function submitPurchaseOrder(data: any) {
+export async function createPurchaseOrder(data: any) {
   const supabase = await createClient();
   const {
     data: { session },

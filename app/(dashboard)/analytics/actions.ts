@@ -68,7 +68,7 @@ export async function getAnalyticsData(params: {
       const items = sale.transaction_items || [];
 
       items.forEach((item: any) => {
-        const product = productMap.get(item.product_id);
+        const product: any = productMap.get(item.product_id);
         const qty = Number(item.quantity);
         const sellPrice = Number(item.price_per_unit);
         const buyPrice = Number(item.harga_beli || product?.harga_beli || 0);
