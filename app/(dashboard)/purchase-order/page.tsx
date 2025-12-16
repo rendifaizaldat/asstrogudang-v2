@@ -1,7 +1,7 @@
 // app/(dashboard)/purchase-order/page.tsx
 import { createClient } from "@/utils/supabase/server";
 import PurchaseOrderForm from "./PurchaseOrderForm";
-import { getOutletsList } from "../piutang/actions"; // Reuse fungsi ini
+import { getOutletsFromUsers } from "./outlet.actions";
 
 export const dynamic = "force-dynamic";
 
@@ -32,7 +32,7 @@ export default async function PurchaseOrderPage() {
   let outlets: string[] = [];
 
   if (isAdmin) {
-    outlets = await getOutletsList();
+    outlets = await getOutletsFromUsers();
   } else {
     // Jika user, outlet list hanya berisi outlet dia sendiri
     outlets = profile?.outlet ? [profile.outlet] : [];
