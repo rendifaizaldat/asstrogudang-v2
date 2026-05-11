@@ -1,16 +1,21 @@
-// app/(dashboard)/purchase-order/PurchaseOrderForm.tsx
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { createPurchaseOrder } from "@/app/(dashboard)/purchase-order/actions";
 import {
   Trash2,
   Plus,
   Save,
   ShoppingCart as ShoppingCartIcon,
+  LayoutGrid,
+  X,
+  Search,
+  ArrowLeft,
+  Minus,
+  Store,
 } from "lucide-react";
 import ProductCombobox from "@/components/form/ProductCombobox";
-import { useToast } from "@/components/ui/ToastProvider"; // 1. Import Toast
+import { useToast } from "@/components/ui/ToastProvider";
 
 const STORAGE_KEY = "asstro_po_draft";
 
@@ -25,368 +30,237 @@ export default function PurchaseOrderForm({
   userRole: string;
   userOutlet?: string;
 }) {
-  const { addToast } = useToast(); // 2. Init Toast
+  const { addToast } = useToast();
 
-  // State Utama
   const [selectedOutlet, setSelectedOutlet] = useState("");
-  const [tanggalKirim, setTanggalKirim] = useState(
-    new Date().toISOString().split("T")[0]
-  );
+  const [tanggalKirim, setTanggalKirim] = useState(new Date().toISOString().split("T")[0]);
   const [cart, setCart] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [isQuickMode, setIsQuickMode] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedAlphabet, setSelectedAlphabet] = useState("");
 
-  // State Input Produk
-  const [selectedProduct, setSelectedProduct] = useState<any>(null);
-  const [qty, setQty] = useState(1);
-
-  const qtyInputRef = useRef<HTMLInputElement>(null);
   const comboboxRef = useRef<{ focus: () => void }>(null);
+  const alphabets = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
 
-  // 1. Load Draft
   useEffect(() => {
     const savedDraft = localStorage.getItem(STORAGE_KEY);
     if (savedDraft) {
-      try {
-        setCart(JSON.parse(savedDraft));
-      } catch (e) {
-        console.error("Gagal load draft", e);
-      }
+      try { setCart(JSON.parse(savedDraft)); } catch (e) { console.error(e); }
     }
-
-    if (userRole === "admin") {
-      if (!localStorage.getItem("po_last_outlet")) setSelectedOutlet("");
-    } else {
-      setSelectedOutlet(userOutlet || "");
-    }
+    if (userRole !== "admin") setSelectedOutlet(userOutlet || "");
   }, [userRole, userOutlet]);
 
-  // 2. Auto Save Draft
   useEffect(() => {
-    if (cart.length > 0) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(cart));
-    }
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(cart));
   }, [cart]);
 
-  // Handler Select Product
-  const handleProductSelect = (product: any) => {
-    setSelectedProduct(product);
-    setQty(1);
-    setTimeout(() => {
-      qtyInputRef.current?.focus();
-      qtyInputRef.current?.select();
-    }, 100);
-  };
+  const cleanNum = (num: number) => Math.round(num * 100) / 100;
 
-  const handleQtyKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      handleAddItem();
-    }
-  };
+  const handleUpdateQty = (productId: string, newQty: number | string) => {
+    let val = typeof newQty === "string" ? parseFloat(newQty.replace(",", ".")) : newQty;
+    if (isNaN(val) || val < 0) val = 0;
 
-  // Handler Add Item (Updated with Toast)
-  const handleAddItem = () => {
-    if (!selectedProduct) return addToast("Pilih produk dulu!", "error");
-    if (qty <= 0) return addToast("Jumlah minimal 1", "error");
+    const productRef = products.find(p => p.id === productId);
+    if (!productRef) return;
 
-    // Validasi Stok
-    if (qty > selectedProduct.sisa_stok) {
-      addToast(
-        `Stok kurang! Sisa: ${selectedProduct.sisa_stok} ${selectedProduct.unit}`,
-        "error"
-      );
-      return;
+    if (val > productRef.sisa_stok) {
+      addToast(`Stok hanya sisa: ${productRef.sisa_stok}`, "error");
+      val = productRef.sisa_stok;
     }
 
-    const existingIdx = cart.findIndex(
-      (item) => item.product_id === selectedProduct.id
-    );
-
-    if (existingIdx >= 0) {
-      const updatedCart = [...cart];
-      const newQty = updatedCart[existingIdx].qty + qty;
-
-      if (newQty > selectedProduct.sisa_stok) {
-        addToast("Total jumlah melebihi sisa stok saat ini!", "error");
-        return;
+    setCart(prev => {
+      const existingIdx = prev.findIndex(item => item.product_id === productId);
+      
+      if (val === 0) {
+        return prev.filter(item => item.product_id !== productId);
       }
-      updatedCart[existingIdx].qty = newQty;
-      updatedCart[existingIdx].subtotal = newQty * selectedProduct.harga_jual;
-      setCart(updatedCart);
-      addToast(`Qty ${selectedProduct.nama} diperbarui`, "info");
-    } else {
-      setCart([
-        ...cart,
-        {
-          product_id: selectedProduct.id,
-          nama: selectedProduct.nama,
-          kode: selectedProduct.kode_produk,
-          unit: selectedProduct.unit,
-          qty: qty,
-          harga_jual: selectedProduct.harga_jual,
-          subtotal: qty * selectedProduct.harga_jual,
-        },
-      ]);
-      addToast("Produk ditambahkan", "success");
-    }
 
-    setQty(1);
-    setSelectedProduct(null);
-    setTimeout(() => {
-      comboboxRef.current?.focus();
-    }, 50);
+      if (existingIdx >= 0) {
+        const newCart = [...prev];
+        newCart[existingIdx] = {
+          ...newCart[existingIdx],
+          qty: cleanNum(val),
+          subtotal: cleanNum(val * newCart[existingIdx].harga_jual)
+        };
+        return newCart;
+      } else {
+        return [...prev, {
+          product_id: productRef.id,
+          nama: productRef.nama,
+          kode: productRef.kode_produk,
+          unit: productRef.unit,
+          qty: cleanNum(val),
+          harga_jual: productRef.harga_jual,
+          subtotal: cleanNum(val * productRef.harga_jual),
+        }];
+      }
+    });
   };
 
-  const handleRemoveItem = (index: number) => {
-    const newCart = cart.filter((_, i) => i !== index);
-    setCart(newCart);
-    if (newCart.length === 0) {
-      localStorage.removeItem(STORAGE_KEY);
-    }
+  const handleRemoveItem = (productId: string) => {
+    setCart(prev => prev.filter(item => item.product_id !== productId));
     addToast("Item dihapus", "info");
   };
 
-  // Handler Reset (Tanpa Confirm, pakai Toast Info)
-  const handleReset = () => {
-    setCart([]);
-    if (userRole === "admin") setSelectedOutlet("");
-    localStorage.removeItem(STORAGE_KEY);
-    addToast("Formulir berhasil direset", "info");
-  };
-
-  // Handler Submit (Tanpa Confirm, Validasi Pakai Toast)
   const handleSubmit = async () => {
-    if (!selectedOutlet) return addToast("Pilih Outlet tujuan!", "error");
-    if (cart.length === 0) return addToast("Keranjang masih kosong!", "error");
-    if (!tanggalKirim) return addToast("Tentukan tanggal kirim!", "error");
-
+    if (!selectedOutlet || cart.length === 0) return addToast("Data belum lengkap!", "error");
     setLoading(true);
-
-    const payload = {
+    const result = await createPurchaseOrder({
       outlet: selectedOutlet,
       tanggalKirim,
-      items: cart.map((item) => ({
-        product_id: item.product_id,
-        qty: item.qty,
-        harga_jual: item.harga_jual,
-      })),
-    };
-
-    const result = await createPurchaseOrder(payload);
-
+      items: cart.map(i => ({ product_id: i.product_id, qty: i.qty, harga_jual: i.harga_jual }))
+    });
     setLoading(false);
-
-    if (result.error) {
-      addToast(`Gagal: ${result.error}`, "error");
-    } else {
-      addToast("Berhasil! PO telah disimpan.", "success");
+    if (!result.error) {
+      addToast("PO Berhasil disimpan!", "success");
       setCart([]);
-      if (userRole === "admin") {
-        setSelectedOutlet("");
-      }
       localStorage.removeItem(STORAGE_KEY);
+    } else {
+      addToast(result.error, "error");
     }
   };
 
   const totalEstimasi = cart.reduce((sum, item) => sum + item.subtotal, 0);
 
+  const filteredProducts = useMemo(() => {
+    return (products || []).filter(p => {
+      const n = p.nama || "";
+      return n.toLowerCase().includes(searchQuery.toLowerCase()) && 
+             (selectedAlphabet ? n.toUpperCase().startsWith(selectedAlphabet) : true);
+    }).sort((a, b) => a.nama.localeCompare(b.nama));
+  }, [searchQuery, selectedAlphabet, products]);
+
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-      {/* BAGIAN KIRI: INPUT FORM */}
-      <div className="lg:col-span-1 space-y-6">
-        {/* PANEL 1: DETAIL PENGIRIMAN */}
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-          <h3 className="font-bold text-lg text-slate-800 mb-4 flex items-center gap-2">
-            📝 Detail Pesanan
-          </h3>
-
-          <div className="space-y-4">
-            <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">
-                Outlet Tujuan
-              </label>
-              {userRole === "admin" ? (
-                <select
-                  value={selectedOutlet}
-                  onChange={(e) => setSelectedOutlet(e.target.value)}
-                  className="w-full border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-indigo-500 outline-none"
-                >
-                  <option value="">-- Pilih Outlet --</option>
-                  {outlets.map((o) => (
-                    <option key={o} value={o}>
-                      {o}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <input
-                  value={userOutlet}
-                  disabled
-                  className="w-full bg-slate-100 border border-slate-200 text-slate-500 rounded-lg p-2.5 cursor-not-allowed font-medium"
-                />
-              )}
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">
-                Rencana Kirim
-              </label>
-              <input
-                type="date"
-                value={tanggalKirim}
-                onChange={(e) => setTanggalKirim(e.target.value)}
-                className="w-full border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-indigo-500 outline-none"
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* PANEL 2: INPUT PRODUK */}
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 relative z-50">
-          <h3 className="font-bold text-lg text-slate-800 mb-4 flex items-center gap-2">
-            📦 Tambah Barang
-          </h3>
-
-          <div className="space-y-4">
-            <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">
-                Cari Produk{" "}
-                {selectedProduct ? `(Dipilih: ${selectedProduct.nama})` : ""}
-              </label>
-              <ProductCombobox
-                ref={comboboxRef}
-                products={products}
-                onSelect={handleProductSelect}
-                placeholder="Ketik nama produk... (Enter)"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">
-                Jumlah
-              </label>
-              <div className="flex gap-2">
-                <input
-                  ref={qtyInputRef}
-                  type="number"
-                  min="1"
-                  value={qty}
-                  onChange={(e) => setQty(Number(e.target.value))}
-                  onKeyDown={handleQtyKeyDown}
-                  className="flex-1 border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-indigo-500 outline-none"
-                />
-                <button
-                  onClick={handleAddItem}
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 rounded-lg flex items-center justify-center transition-colors shadow-lg shadow-indigo-500/20 active:scale-95"
-                  title="Tambah (Enter)"
-                >
-                  <Plus size={20} />
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+    <div className="space-y-6 pb-10">
+      <div className="flex justify-between items-center bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
+        <h2 className="text-xl font-black text-slate-800 uppercase tracking-tighter">Purchase Order</h2>
+        <button onClick={() => setIsQuickMode(true)} className="flex items-center gap-2 bg-indigo-600 text-white px-5 py-2.5 rounded-xl font-bold active:scale-95 transition-all">
+          <LayoutGrid size={18} /> Katalog Cepat
+        </button>
       </div>
 
-      {/* BAGIAN KANAN: TABEL KERANJANG */}
-      <div className="lg:col-span-2 flex flex-col h-full z-0">
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex-1 flex flex-col min-h-[500px]">
-          <div className="flex justify-between items-center mb-4 border-b pb-4">
-            <h3 className="font-bold text-lg text-slate-800">
-              Keranjang ({cart.length} item)
-            </h3>
-            <span className="text-sm font-bold text-slate-500 bg-slate-100 px-3 py-1 rounded-full">
-              Total:{" "}
-              {new Intl.NumberFormat("id-ID", {
-                style: "currency",
-                currency: "IDR",
-              }).format(totalEstimasi)}
-            </span>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="space-y-6">
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+             <h3 className="font-bold mb-4 flex items-center gap-2 text-slate-700 uppercase text-xs tracking-widest"><Store size={16}/> Pengiriman</h3>
+             <div className="space-y-4">
+                <select value={selectedOutlet} onChange={(e) => setSelectedOutlet(e.target.value)} className="w-full p-3 border rounded-xl font-bold text-slate-700 outline-none">
+                  <option value="">-- Pilih Outlet --</option>
+                  {outlets.map(o => <option key={o} value={o}>{o}</option>)}
+                </select>
+                <input type="date" value={tanggalKirim} onChange={(e) => setTanggalKirim(e.target.value)} className="w-full p-3 border rounded-xl font-bold text-slate-700 outline-none" />
+             </div>
           </div>
+          
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm relative z-50">
+             <h3 className="font-bold mb-4 flex items-center gap-2 text-slate-700 uppercase text-xs tracking-widest"><Search size={16}/> Cari Barang</h3>
+             <ProductCombobox ref={comboboxRef} products={products} onSelect={(p) => handleUpdateQty(p.id, 1)} />
+          </div>
+        </div>
 
-          <div className="flex-1 overflow-auto">
-            {cart.length === 0 ? (
-              <div className="h-full flex flex-col items-center justify-center text-slate-400 border-2 border-dashed border-slate-100 rounded-xl">
-                <ShoppingCartIcon size={48} className="mb-2 opacity-20" />
-                <p>Belum ada barang dipilih.</p>
-              </div>
-            ) : (
-              <table className="w-full text-sm text-left">
-                <thead className="text-xs text-slate-500 uppercase bg-slate-50 sticky top-0">
+        <div className="lg:col-span-2">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm flex flex-col min-h-[500px]">
+            <div className="p-5 border-b bg-slate-50 flex justify-between items-center rounded-t-2xl">
+              <span className="font-black text-slate-800 uppercase text-sm">Item Pesanan ({cart.length})</span>
+              <span className="font-black text-indigo-600">Total: Rp {totalEstimasi.toLocaleString('id-ID')}</span>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest">
                   <tr>
-                    <th className="px-4 py-3 rounded-l-lg">Produk</th>
-                    <th className="px-4 py-3 text-center">Qty</th>
-                    <th className="px-4 py-3 text-right">Harga</th>
-                    <th className="px-4 py-3 text-right">Subtotal</th>
-                    <th className="px-4 py-3 text-center rounded-r-lg">Aksi</th>
+                    <th className="px-6 py-3 text-left">Produk</th>
+                    <th className="px-6 py-3 text-center w-48">Qty</th>
+                    <th className="px-6 py-3 text-right">Subtotal</th>
+                    <th className="px-6 py-3 text-center w-20"></th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-50">
+                <tbody className="divide-y">
                   {cart.map((item, idx) => (
-                    <tr
-                      key={idx}
-                      className="hover:bg-slate-50 transition-colors"
-                    >
-                      <td className="px-4 py-3">
-                        <div className="font-bold text-slate-700">
-                          {item.nama}
+                    <tr key={item.product_id} className="hover:bg-slate-50/50">
+                      <td className="px-6 py-4 font-bold text-slate-800 uppercase text-xs">{item.nama}</td>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center justify-center gap-2">
+                          <button onClick={() => handleUpdateQty(item.product_id, cleanNum(item.qty - 1))} className="w-8 h-8 rounded-lg border flex items-center justify-center text-slate-400 hover:bg-red-50 hover:text-red-500 transition-all"><Minus size={14}/></button>
+                          <input 
+                            type="number" step="0.01" value={item.qty} 
+                            onChange={(e) => handleUpdateQty(item.product_id, e.target.value)}
+                            className="w-20 text-center font-black text-slate-700 bg-slate-50 rounded-md py-1 outline-none border border-transparent focus:border-indigo-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                          />
+                          <button onClick={() => handleUpdateQty(item.product_id, cleanNum(item.qty + 1))} className="w-8 h-8 rounded-lg border flex items-center justify-center text-slate-400 hover:bg-green-50 hover:text-green-500 transition-all"><Plus size={14}/></button>
                         </div>
-                        <div className="text-[10px] text-slate-400 font-mono">
-                          {item.kode}
-                        </div>
                       </td>
-                      <td className="px-4 py-3 text-center">
-                        <span className="bg-white border border-slate-200 px-2 py-1 rounded font-bold text-slate-600">
-                          {item.qty} {item.unit}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-right text-slate-500">
-                        {new Intl.NumberFormat("id-ID").format(item.harga_jual)}
-                      </td>
-                      <td className="px-4 py-3 text-right font-bold text-indigo-600">
-                        {new Intl.NumberFormat("id-ID").format(item.subtotal)}
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <button
-                          onClick={() => handleRemoveItem(idx)}
-                          className="text-red-400 hover:text-red-600 p-2 rounded-full hover:bg-red-50 transition-colors"
-                        >
-                          <Trash2 size={16} />
-                        </button>
+                      <td className="px-6 py-4 text-right font-black">Rp {item.subtotal.toLocaleString('id-ID')}</td>
+                      <td className="px-6 py-4 text-center">
+                        <button onClick={() => handleRemoveItem(item.product_id)} className="text-slate-300 hover:text-red-500 transition-colors"><Trash2 size={18}/></button>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-            )}
-          </div>
-
-          <div className="mt-6 pt-4 border-t border-slate-100 flex justify-end gap-3">
-            <button
-              onClick={handleReset}
-              disabled={cart.length === 0}
-              className="px-6 py-3 rounded-xl border border-red-200 text-red-500 font-bold hover:bg-red-50 transition-colors disabled:opacity-50"
-            >
-              Reset
-            </button>
-
-            <button
-              onClick={handleSubmit}
-              disabled={loading || cart.length === 0}
-              className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-8 py-3 rounded-xl font-bold shadow-lg shadow-emerald-500/30 disabled:opacity-50 disabled:shadow-none transition-all transform hover:-translate-y-1 active:scale-95"
-            >
-              {loading ? (
-                "Memproses..."
-              ) : (
-                <>
-                  <Save size={20} />
-                  Simpan Pesanan
-                </>
-              )}
-            </button>
+            </div>
+            <div className="p-6 mt-auto border-t bg-slate-50 flex justify-end rounded-b-2xl">
+               <button onClick={handleSubmit} disabled={loading || cart.length === 0} className="bg-indigo-600 text-white px-10 py-3 rounded-xl font-black shadow-lg hover:bg-indigo-700 active:scale-95 transition-all uppercase tracking-widest text-xs">Simpan PO</button>
+            </div>
           </div>
         </div>
       </div>
+
+      {isQuickMode && (
+        <div className="fixed inset-0 bg-white z-[100] flex flex-col animate-in slide-in-from-bottom duration-300">
+          <div className="p-4 border-b flex justify-between items-center bg-slate-900 text-white shadow-xl">
+            <button onClick={() => setIsQuickMode(false)} className="flex items-center gap-2 font-bold px-4 py-2 hover:bg-slate-800 rounded-lg transition-colors"><ArrowLeft/> Kembali</button>
+            <div className="text-center flex-1">
+               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Katalog Input</p>
+               <p className="font-black text-indigo-400 text-lg tabular-nums">Rp {totalEstimasi.toLocaleString('id-ID')}</p>
+            </div>
+            <button onClick={() => setIsQuickMode(false)} className="bg-indigo-600 px-6 py-2 rounded-xl font-black text-xs uppercase tracking-widest active:scale-95 transition-all">Selesai</button>
+          </div>
+
+          <div className="flex flex-1 overflow-hidden">
+            <div className="w-16 bg-slate-50 border-r flex flex-col items-center py-4 gap-1 overflow-y-auto shrink-0 shadow-inner">
+               <button onClick={() => setSelectedAlphabet("")} className={`w-11 h-11 rounded-xl text-[10px] font-black transition-all ${selectedAlphabet === "" ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200' : 'text-slate-400 hover:bg-white'}`}>ALL</button>
+               {alphabets.map(c => <button key={c} onClick={() => setSelectedAlphabet(c)} className={`w-11 h-11 rounded-xl text-xs font-bold transition-all ${selectedAlphabet === c ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:bg-white'}`}>{c}</button>)}
+            </div>
+
+            <div className="flex-1 flex flex-col overflow-hidden bg-slate-100/30">
+               <div className="p-4 bg-white shadow-sm">
+                 <input type="text" placeholder="Cari nama barang..." className="w-full p-4 bg-slate-50 rounded-2xl font-bold outline-none border-2 border-transparent focus:border-indigo-500 transition-all shadow-inner uppercase placeholder:normal-case" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
+               </div>
+               {/* GRID DIUBAH MENJADI grid-cols-5 UNTUK DESKTOP */}
+               <div className="flex-1 overflow-y-auto p-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 content-start pb-20">
+                 {filteredProducts.map(p => {
+                    const inCart = cart.find(i => i.product_id === p.id);
+                    return (
+                      <div key={p.id} className={`p-4 rounded-[2rem] border-2 transition-all flex flex-col justify-between h-44 shadow-sm ${inCart ? 'border-indigo-600 bg-white scale-[1.02]' : 'border-white bg-white hover:border-slate-200'}`}>
+                         <div>
+                            <p className="font-black text-slate-800 uppercase text-[10px] leading-tight line-clamp-2 h-7">{p.nama}</p>
+                            <p className="text-[10px] font-bold text-indigo-500 mt-1">Rp {p.harga_jual?.toLocaleString('id-ID')}</p>
+                         </div>
+                         <div className="mt-auto">
+                            {inCart ? (
+                              <div className="flex items-center gap-1 bg-slate-50 rounded-2xl p-1 justify-between border border-slate-100 shadow-inner">
+                                <button onClick={() => handleUpdateQty(p.id, cleanNum(inCart.qty - 1))} className="w-8 h-8 rounded-xl bg-white flex items-center justify-center shadow-sm text-red-500 active:scale-90 transition-all"><Minus size={14}/></button>
+                                {/* INPUT FIELD DALAM KATALOG */}
+                                <input 
+                                  type="number" step="0.01" value={inCart.qty}
+                                  onChange={(e) => handleUpdateQty(p.id, e.target.value)}
+                                  className="w-10 text-center font-black text-[11px] bg-transparent outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                />
+                                <button onClick={() => handleUpdateQty(p.id, cleanNum(inCart.qty + 1))} className="w-8 h-8 rounded-xl bg-white flex items-center justify-center shadow-sm text-green-500 active:scale-90 transition-all"><Plus size={14}/></button>
+                              </div>
+                            ) : (
+                              <button onClick={() => handleUpdateQty(p.id, 1)} className="w-full py-3 bg-indigo-50 border-2 border-indigo-100 rounded-2xl text-[10px] font-black text-indigo-600 uppercase hover:bg-indigo-600 hover:text-white transition-all active:scale-95 tracking-tighter">+ Tambah</button>
+                            )}
+                         </div>
+                      </div>
+                    )
+                 })}
+               </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
