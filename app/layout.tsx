@@ -563,7 +563,7 @@ export default function Page() {
               <path d="M5 12h14M12 5l7 7-7 7" />
             </svg>
           </a>
-          <a href="mailto:support@alma-app.vercel.app" className="cta-secondary">Hubungi Tim Support</a>
+          <a href="mailto:rendifaizaldat@gmail.com" className="cta-secondary">Hubungi Tim Support</a>
         </div>
       </div>
 
@@ -571,7 +571,7 @@ export default function Page() {
       <div className="footer">
         <span>© 2026 ASSTRO GUDANG</span>
         <span className="dot" />
-        <span>POWERED BY ALMA</span>
+        <span>POWERED BY ALMA @Rendifaizaldat</span>
         <span className="dot" />
         <span className="live" id="liveClock">--:--:--</span>
       </div>
