@@ -1,5 +1,5 @@
 'use client';
-
+import './globals.css';
 import { useEffect } from 'react';
 import * as THREE from 'three';
 import { FontLoader } from 'three/examples/jsm/loaders/FontLoader.js';
