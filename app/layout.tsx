@@ -1,7 +1,7 @@
 'use client';
 import './globals.css';
 import { useEffect } from 'react';
-import \* as THREE from 'three';
+import * as THREE from 'three';
 import { FontLoader } from 'three/examples/jsm/loaders/FontLoader.js';
 import { TextGeometry } from 'three/examples/jsm/geometries/TextGeometry.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
