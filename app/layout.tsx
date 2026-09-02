@@ -479,8 +479,6 @@ if (!container) return;
 
 return (
 <>
-{/_ Konten HTML seperti sebelumnya _/}
-
 <div id="three-container" />
 <div className="scene-vignette" />
 <div className="bg-grid" />
