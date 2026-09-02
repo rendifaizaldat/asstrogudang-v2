@@ -7,10 +7,10 @@ import { TextGeometry } from 'three/examples/jsm/geometries/TextGeometry.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 
 export default function Page() {
-useEffect(() => {
-// ==================== SETUP ====================
-const container = document.getElementById('three-container');
-if (!container) return;
+  useEffect(() => {
+    // ==================== SETUP ====================
+    const container = document.getElementById('three-container');
+    if (!container) return;
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x050810);
@@ -143,9 +143,18 @@ if (!container) return;
 
     // Countdown logic
     const targetDate = new Date('2026-09-03T00:00:00');
-    const redirectUrl = 'https://alma-client-unv.vercel.app/';
     const startTime = Date.now();
     const totalDuration = Math.max(1, targetDate.getTime() - startTime);
+
+    // State untuk mode setelah countdown selesai
+    let isCountdownFinished = false;
+    let postCountdownText = 'aplikasi baru telah rilis';
+    let postCountdownIndex = 0;
+    let postCountdownInterval: ReturnType<typeof setInterval> | null = null;
+    const postCountdownTexts = [
+      'aplikasi baru telah rilis',
+      'terimakasih atas partisipasinya',
+    ];
 
     function getCountdownParts() {
       const now = new Date();
@@ -160,24 +169,26 @@ if (!container) return;
     }
 
     function getCountdownString() {
+      if (isCountdownFinished) {
+        return postCountdownText;
+      }
       const { days, hours, minutes, seconds } = getCountdownParts();
       return `${String(days).padStart(3, '0')} : ${String(hours).padStart(2, '0')} : ${String(minutes).padStart(2, '0')} : ${String(seconds).padStart(2, '0')}`;
     }
 
     // Font loading
     const fontLoader = new FontLoader();
-    let loadedFont = null;
-    let countdownMesh = null;
+    let loadedFont: any = null;
+    let countdownMesh: THREE.Mesh | null = null;
     let lastCountdownString = '';
     let wobbleStartTime = 0;
-    let redirected = false;
-    let particleSystem = null;
+    let particleSystem: THREE.Points | null = null;
 
-    function centerGeometry(geometry) {
+    function centerGeometry(geometry: THREE.BufferGeometry) {
       geometry.computeBoundingBox();
-      const cx = (geometry.boundingBox.max.x + geometry.boundingBox.min.x) / 2;
-      const cy = (geometry.boundingBox.max.y + geometry.boundingBox.min.y) / 2;
-      const cz = (geometry.boundingBox.max.z + geometry.boundingBox.min.z) / 2;
+      const cx = (geometry.boundingBox!.max.x + geometry.boundingBox!.min.x) / 2;
+      const cy = (geometry.boundingBox!.max.y + geometry.boundingBox!.min.y) / 2;
+      const cz = (geometry.boundingBox!.max.z + geometry.boundingBox!.min.z) / 2;
       geometry.translate(-cx, -cy, -cz);
       return geometry;
     }
@@ -343,10 +354,19 @@ if (!container) return;
       const currentString = getCountdownString();
       if (currentString === lastCountdownString) return;
       lastCountdownString = currentString;
+
+      // Tentukan ukuran font dinamis
+      let fontSize = 7.5;
+      if (currentString.length > 20) {
+        fontSize = 5.2; // Teks panjang seperti "aplikasi baru telah rilis"
+      } else if (currentString.length > 12) {
+        fontSize = 6.5;
+      }
+
       const newGeometry = centerGeometry(
         new TextGeometry(currentString, {
           font: loadedFont,
-          size: 7.5,
+          size: fontSize,
           height: 3.5,
           curveSegments: 14,
           bevelEnabled: true,
@@ -368,7 +388,8 @@ if (!container) return;
       targetMouseY = (e.clientY / window.innerHeight - 0.5) * 2;
     });
 
-    function pad(n) { return String(n).padStart(2, '0'); }
+    function pad(n: number) { return String(n).padStart(2, '0'); }
+
     function updateProgressBar() {
       const elapsed = Date.now() - startTime;
       const pct = Math.min(100, Math.max(0, (elapsed / totalDuration) * 100));
@@ -377,6 +398,7 @@ if (!container) return;
       if (fill) fill.style.width = pct.toFixed(2) + '%';
       if (pctLabel) pctLabel.textContent = pct.toFixed(1) + '%';
     }
+
     function updateClock() {
       const d = new Date();
       const clock = document.getElementById('liveClock');
@@ -418,13 +440,26 @@ if (!container) return;
       }
 
       updateCountdownMesh();
+
+      // Cek apakah countdown selesai
       const { diff } = getCountdownParts();
-      if (diff <= 0 && !redirected) {
-        redirected = true;
-        const overlay = document.getElementById('redirecting');
-        if (overlay) overlay.classList.add('active');
-        setTimeout(() => (window.location.href = redirectUrl), 1800);
+      if (diff <= 0 && !isCountdownFinished) {
+        isCountdownFinished = true;
+        postCountdownText = postCountdownTexts[0];
+        postCountdownIndex = 0;
+        lastCountdownString = ''; // Paksa update mesh
+        // Sembunyikan label countdown
+        const countdownLabels = document.getElementById('countdownLabels');
+        if (countdownLabels) countdownLabels.style.display = 'none';
+
+        // Mulai interval untuk mengganti teks setiap 5 detik
+        postCountdownInterval = setInterval(() => {
+          postCountdownIndex = (postCountdownIndex + 1) % postCountdownTexts.length;
+          postCountdownText = postCountdownTexts[postCountdownIndex];
+          lastCountdownString = ''; // Paksa update mesh
+        }, 5000);
       }
+
       updateProgressBar();
 
       pointLightCyan.position.x = Math.sin(t * 0.5) * 35;
@@ -468,22 +503,21 @@ if (!container) return;
     setInterval(updateClock, 1000);
 
     return () => {
-      // Cleanup
+      // Bersihkan interval post-countdown
+      if (postCountdownInterval) clearInterval(postCountdownInterval);
       renderer.dispose();
       pmremGenerator.dispose();
-      // Hentikan animasi
-      // (bisa simpan id requestAnimationFrame)
+      // Hentikan animasi jika perlu
     };
+  }, []);
 
-}, []);
-
-return (
-<>
-<div id="three-container" />
-<div className="scene-vignette" />
-<div className="bg-grid" />
-<div className="bg-noise" />
-<div className="scanline" />
+  return (
+    <>
+      <div id="three-container" />
+      <div className="scene-vignette" />
+      <div className="bg-grid" />
+      <div className="bg-noise" />
+      <div className="scanline" />
 
       {/* Corner brackets */}
       <div className="corner corner-tl">
@@ -544,7 +578,7 @@ return (
           </svg>
           alma-app.vercel.app
         </div>
-        <div className="countdown-labels">
+        <div className="countdown-labels" id="countdownLabels">
           <span>Hari</span><span>Jam</span><span>Menit</span><span>Detik</span>
         </div>
         <div className="progress-section">
@@ -575,13 +609,7 @@ return (
         <span className="dot" />
         <span className="live" id="liveClock">--:--:--</span>
       </div>
-
-      {/* Redirecting overlay */}
-      <div className="redirecting" id="redirecting">
-        <div className="redirecting-spinner" />
-        <div className="redirecting-text">Mengalihkan ke domain baru...</div>
-      </div>
+      {/* Overlay redirecting dihapus */}
     </>
-
-);
+  );
 }
